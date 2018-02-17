@@ -17,7 +17,6 @@
 #include <ctype.h>
 #include "ftd2xx.h"
 #include "libft4222.h"
-
 #include <unistd.h>///
 
 #ifndef _countof
@@ -43,153 +42,75 @@ static char slogan2[EEPROM_BYTES + 1] =
 **/
 
 
-static int exercise4222(DWORD locationId)
-{
-    int                  success = 0;
-    FT_STATUS            ftStatus;
-    FT_HANDLE            ftHandle = (FT_HANDLE)NULL;
-    FT4222_STATUS        ft4222Status;
-    FT4222_Version       ft4222Version;
-    uint8                address;
-    char                *writeBuffer;
 
-    ftStatus = FT_OpenEx((PVOID)(uintptr_t)locationId,
-                         FT_OPEN_BY_LOCATION,
-                         &ftHandle);
-    if (ftStatus != FT_OK)
-    {
-        printf("FT_OpenEx failed (error %d)\n",
-               (int)ftStatus);
-        goto exit;
-    }
-
-    ft4222Status = FT4222_GetVersion(ftHandle,
-                                     &ft4222Version);
-    if (FT4222_OK != ft4222Status)
-    {
-        printf("FT4222_GetVersion failed (error %d)\n",
-               (int)ft4222Status);
-        goto exit;
-    }
-
-    printf("Chip version: %08X, LibFT4222 version: %08X\n",
-           (unsigned int)ft4222Version.chipVersion,
-           (unsigned int)ft4222Version.dllVersion);
-
-    // Configure the FT4222 as an SPI Master.
-    ft4222Status = FT4222_SPIMaster_Init(
-                        ftHandle,
-                        SPI_IO_SINGLE, // 1 channel
-                        CLK_DIV_32, // 60 MHz / 32 == 1.875 MHz
-                        CLK_IDLE_LOW, // clock idles at logic 0
-                        CLK_LEADING, // data captured on rising edge
-                        SLAVE_SELECT(0)); // Use SS0O for slave-select
-    if (FT4222_OK != ft4222Status)
-    {
-        printf("FT4222_SPIMaster_Init failed (error %d)\n",
-               (int)ft4222Status);
-        goto exit;
-    }
-
-    ft4222Status = FT4222_SPI_SetDrivingStrength(ftHandle,
-                                                 DS_8MA,
-                                                 DS_8MA,
-                                                 DS_8MA);
-    if (FT4222_OK != ft4222Status)
-    {
-        printf("FT4222_SPI_SetDrivingStrength failed (error %d)\n",
-               (int)ft4222Status);
-        goto exit;
-    }
-
-   printf("=============================================\n");
-   while (TRUE)
-   {
-   	char command_rw;
-   	command_rw = getchar();
-
-   	uint32 command;
-   	scanf("%x", &command);
-
-   	if (command_rw == 'W')
+// Reg read function implementation 
+int MAX11300Reg_read(FT_HANDLE ftHandle1, uint8 address)
    	{
-   		uint8 data[3];
-      		data[0] = command>>15 & 0xFE;   // since max address is 0x73 shifting by 15 would not truncate !
-      		data[1] = command>>8 & 0xFF;	// MSB	
-      		data[2] = command & 0xFF;	// LSB
-   		printf("%x\n", data[0]); printf("%x\n", data[1]); printf("%x\n", data[2]);
-   		uint16 rx2;
-   		ft4222Status = FT4222_SPIMaster_SingleWrite(
-                            ftHandle,
-                            data,
-                            3,
-                            &rx2,
-                            TRUE);
-        	if (FT4222_OK != ft4222Status)
-        		{
-            			printf("FT4222_SPIMaster_SingleReadWrite failed (error %d)!\n",ft4222Status);
-            			success = 0;
-            			goto exit;
-        		}
-        	printf("Wrote %06x\n", command);
-        	sleep(1);
+	FT4222_STATUS ft4222Status;
+   	uint8 data[3];
+   	data[0] = (address<<1) | 0x01;
+   	data[1] = 0;
+   	data[2] = 0;
+   	uint8 response[3]={0x00 ,0x00 ,0x00};
+	uint16 rxdata;
+   	uint16 rx2;
+	ft4222Status = FT4222_SPIMaster_SingleReadWrite(
+                       ftHandle1,
+                       response,
+                       data,
+                       3,
+                       &rx2,
+                       TRUE);
+        if (FT4222_OK != ft4222Status)
+        	{
+        	printf("FT4222_SPIMaster_SingleReadWrite failed (error %d)!\n",ft4222Status);
+		return 0;
+        	}
+	rxdata = ((response[1])<<8) | response[2]; //Combining into single 
+       	printf("Rxdata = 0x%04x\n" , rxdata);
+	return 1;		
    	}
 
-   	else if (command_rw == 'R')
-   	{
-   		uint8 data[3];
-   		data[0] = (command<<1) | 0x01;
-   		data[1] = 0;
-   		data[2] = 0;
-   		uint8 response[3]={0x00 ,0x00 ,0x00};
-		uint16 rxdata;
-   		uint16 rx2;
 
-   		ft4222Status = FT4222_SPIMaster_SingleReadWrite(
-                            ftHandle,
-                            response,
-                            data,
-                            3,
-                            &rx2,
-                            TRUE);
-        	if (FT4222_OK != ft4222Status)
-        		{
-            			printf("FT4222_SPIMaster_SingleReadWrite failed (error %d)!\n",ft4222Status);
-            			success = 0;
-            			goto exit;
-        		}
-		rxdata = ((response[1])<<8) | response[2]; //Combining into single 
-        	printf("Rxdata = 0x%04x\n" , rxdata);
-
+//Reg write implementation
+int MAX11300Reg_write(FT_HANDLE ftHandle1, uint32 command)
+	{
+	FT4222_STATUS        ft4222Status;
+	uint8 data[3];
+	data[0] = command>>15 & 0xFE;   // since max address is 0x73 shifting by 15 would not truncate !
+	data[1] = command>>8 & 0xFF;	// MSB	
+	data[2] = command & 0xFF;	// LSB
+	printf("%x\n", data[0]); printf("%x\n", data[1]); printf("%x\n", data[2]);
+   	uint16 rx2;
+   	ft4222Status = FT4222_SPIMaster_SingleWrite(
+                           ftHandle1,
+                           data,
+                           3,
+                           &rx2,
+                           TRUE);
+        if (FT4222_OK != ft4222Status)
+        	{
+        	printf("FT4222_SPIMaster_SingleReadWrite failed (error %d)!\n",ft4222Status);
+		return 0;
+        	}
+        printf("Wrote %06x\n", command);
+        sleep(1);
+	return 1;
    	}
 
-   	else if (command_rw == 'X')
-   	{
-   		break;
-   	}
 
-   }
-
-
-
-exit:
-    if (ftHandle != (FT_HANDLE)NULL)
-    {
-        (void)FT4222_UnInitialize(ftHandle);
-        (void)FT_Close(ftHandle);
-    }
-
-    return success;
-}
-
-
-static int testFT4222(void)
+int main(void)
 {
     FT_STATUS                 ftStatus;
     FT_DEVICE_LIST_INFO_NODE *devInfo = NULL;
     DWORD                     numDevs = 0;
     int                       i;
     int                       retCode = 0;
+
+    FT_HANDLE            ftHandle = (FT_HANDLE)NULL;
+    FT4222_STATUS        ft4222Status;
+    FT4222_Version       ft4222Version;
+    char                *writeBuffer;
 
     ftStatus = FT_CreateDeviceInfoList(&numDevs);
     if (ftStatus != FT_OK)
@@ -226,33 +147,70 @@ static int testFT4222(void)
         retCode = -40;
         goto exit;
     }
-    printf("numb of devices %d",(int)numDevs);
+    printf("number of devices %d",(int)numDevs);
     for (i = 0; i < (int)numDevs; i++)
     {
         if (devInfo[i].Type == FT_DEVICE_4222H_0)
-        {
-            printf("\nDevice %d is FT4222H in mode 0 (single Master or Slave):\n",i);
-            printf("  0x%08x  %s  %s\n",
-                   (unsigned int)devInfo[i].ID,
-                   devInfo[i].SerialNumber,
-                   devInfo[i].Description);
-                   if (i>=0)
-                   {
-                     (void)exercise4222(devInfo[i].LocId);
-                     break;
-                   }
+        	{
+            	printf("\nDevice %d is FT4222H in mode 0 (single Master or Slave):\n",i);
+            	printf("  0x%08x  %s  %s\n",(unsigned int)devInfo[i].ID, devInfo[i].SerialNumber, devInfo[i].Description);
+		//Excercise FT4222 and put in SPI mode
+		ftStatus = FT_OpenEx((PVOID)(uintptr_t)devInfo[i].LocId,
+                         FT_OPEN_BY_LOCATION,
+                         &ftHandle);
+    		if (ftStatus != FT_OK)
+    			{
+        		printf("FT_OpenEx failed (error %d)\n",(int)ftStatus);
+        		goto exit;
+    			}
 
-        }
+    		ft4222Status = FT4222_GetVersion(ftHandle,&ft4222Version);
+    		if (FT4222_OK != ft4222Status)
+    			{
+        		printf("FT4222_GetVersion failed (error %d)\n",(int)ft4222Status);
+        		goto exit;
+    			}
+
+    		printf("Chip version: %08X, LibFT4222 version: %08X\n",(unsigned int)ft4222Version.chipVersion,(unsigned int)ft4222Version.dllVersion);
+
+    		// Configure the FT4222 as an SPI Master.
+    		ft4222Status = FT4222_SPIMaster_Init(
+                        ftHandle,
+                        SPI_IO_SINGLE, // 1 channel
+                        CLK_DIV_32, // 60 MHz / 32 == 1.875 MHz
+                        CLK_IDLE_LOW, // clock idles at logic 0
+                        CLK_LEADING, // data captured on rising edge
+                        SLAVE_SELECT(0)); // Use SS0O for slave-select
+    		if (FT4222_OK != ft4222Status)
+    			{
+        		printf("FT4222_SPIMaster_Init failed (error %d)\n",(int)ft4222Status);
+       			goto exit;
+    			}
+   		ft4222Status = FT4222_SPI_SetDrivingStrength(ftHandle,
+                                                 DS_8MA,
+                                                 DS_8MA,
+                                                 DS_8MA);
+    		if (FT4222_OK != ft4222Status)
+    			{
+        		printf("FT4222_SPI_SetDrivingStrength failed (error %d)\n",(int)ft4222Status);
+        		goto exit;
+    			}
+		printf("=============================================\n");
+		while(1)
+			{
+			MAX11300Reg_read(ftHandle, 0x00);
+			sleep (2);
+			MAX11300Reg_read(ftHandle, 0x10);
+			}
+        	}
     }
-
 exit:
+    if (ftHandle != (FT_HANDLE)NULL)
+    	{
+        (void)FT4222_UnInitialize(ftHandle);
+        (void)FT_Close(ftHandle);
+    	}
     free(devInfo);
-    return retCode;
-}
-
-int main(void)
-{
-    return testFT4222();
 }
 
 
@@ -316,5 +274,15 @@ int main(void)
    		    printf("0x%x\n", data[0]);
    		    printf("read size = %d\n" , rx2);
             printf ("Response = 0x%2x : 0x%2x\n", response[2], response[1]);
-        }*/
+        }
+exit:
+    if (ftHandle != (FT_HANDLE)NULL)
+    	{
+        (void)FT4222_UnInitialize(ftHandle);
+        (void)FT_Close(ftHandle);
+    	}
+
+    return success;
+}*/
+
       //sleep(1e-1);

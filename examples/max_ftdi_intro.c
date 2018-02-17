@@ -42,7 +42,6 @@ static char slogan2[EEPROM_BYTES + 1] =
 **/
 
 
-
 // Reg read function implementation 
 int MAX11300Reg_read(FT_HANDLE ftHandle1, uint8 address)
    	{
@@ -71,6 +70,35 @@ int MAX11300Reg_read(FT_HANDLE ftHandle1, uint8 address)
 	return 1;		
    	}
 
+// MAX ADC read 12bit
+int MAX11300adc_read(FT_HANDLE ftHandle1, uint8 address)
+   	{
+	FT4222_STATUS ft4222Status;
+   	uint8 data[4];
+   	data[0] = (address<<1) | 0x01;
+   	data[1] = 0;
+   	data[2] = 0;
+   	uint8 response[3]={0x00 ,0x00 ,0x00};
+	uint16 rxdata;
+   	uint16 rx2;
+	ft4222Status = FT4222_SPIMaster_SingleReadWrite(
+                       ftHandle1,
+                       response,
+                       data,
+                       3,
+                       &rx2,
+                       TRUE);
+        if (FT4222_OK != ft4222Status)
+        	{
+        	printf("FT4222_SPIMaster_SingleReadWrite failed (error %d)!\n",ft4222Status);
+		return 0;
+        	}
+	rxdata = ((response[1])<<8) | (response[2]) ; //Combining into single 
+	rxdata = rxdata & 0x0FFF ; // extracting 12 bits
+       	printf("ADCdata = 0x%04x\n" , rxdata);
+	printf("ADCdata = %f \n", ((float)(rxdata)*10/(4095)));
+	return rxdata ;		
+   	}
 
 //Reg write implementation
 int MAX11300Reg_write(FT_HANDLE ftHandle1, uint32 command)
@@ -80,7 +108,7 @@ int MAX11300Reg_write(FT_HANDLE ftHandle1, uint32 command)
 	data[0] = command>>15 & 0xFE;   // since max address is 0x73 shifting by 15 would not truncate !
 	data[1] = command>>8 & 0xFF;	// MSB	
 	data[2] = command & 0xFF;	// LSB
-	printf("%x\n", data[0]); printf("%x\n", data[1]); printf("%x\n", data[2]);
+//	printf("%x\n", data[0]); printf("%x\n", data[1]); printf("%x\n", data[2]);
    	uint16 rx2;
    	ft4222Status = FT4222_SPIMaster_SingleWrite(
                            ftHandle1,
@@ -94,9 +122,20 @@ int MAX11300Reg_write(FT_HANDLE ftHandle1, uint32 command)
 		return 0;
         	}
         printf("Wrote %06x\n", command);
-        sleep(1);
+        sleep(0.002);
 	return 1;
    	}
+
+//MAX initialisation and setting up
+int MAX11300_init(FT_HANDLE ftHandle1)
+	{
+	int a;	
+	a=MAX11300Reg_write(ftHandle1, 0x1000f0); //Device control register
+	a=MAX11300Reg_write(ftHandle1, 0x2A5100); //DAC config for port10
+	a=MAX11300Reg_write(ftHandle1, 0x6A0666);	//DAC Data register
+	a=MAX11300Reg_write(ftHandle1, 0x207100); //ADC functid,rpm
+	a=MAX11300Reg_write(ftHandle1, 0x1000f7); //Device control register- adc continous sweep
+	}
 
 
 int main(void)
@@ -106,11 +145,13 @@ int main(void)
     DWORD                     numDevs = 0;
     int                       i;
     int                       retCode = 0;
-
+ 
     FT_HANDLE            ftHandle = (FT_HANDLE)NULL;
     FT4222_STATUS        ft4222Status;
     FT4222_Version       ft4222Version;
     char                *writeBuffer;
+
+    int MAX11300_status;
 
     ftStatus = FT_CreateDeviceInfoList(&numDevs);
     if (ftStatus != FT_OK)
@@ -196,13 +237,21 @@ int main(void)
         		goto exit;
     			}
 		printf("=============================================\n");
-		while(1)
+
+// Everything works. Time to configure MAX11300
+		MAX11300_status = MAX11300_init(ftHandle);
+		int adc_to_dac;
+		if (MAX11300_status)
 			{
-			MAX11300Reg_read(ftHandle, 0x00);
+			while(1)
+				{
+			// While(1), Locks up at the first device. Use this to read the value of ADC or DAC 
+			adc_to_dac = MAX11300adc_read(ftHandle, 0x40);
+			MAX11300Reg_write(ftHandle, 0x6A0000|adc_to_dac);
 			sleep (2);
-			MAX11300Reg_read(ftHandle, 0x10);
-			}
-        	}
+				}
+        		}
+		}
     }
 exit:
     if (ftHandle != (FT_HANDLE)NULL)
